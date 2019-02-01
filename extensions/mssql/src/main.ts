@@ -7,6 +7,7 @@
 import * as vscode from 'vscode';
 import * as sqlops from 'sqlops';
 import * as path from 'path';
+
 import { SqlOpsDataClient, ClientOptions } from 'dataprotocol-client';
 import { IConfig, ServerProvider, Events } from 'service-downloader';
 import { ServerOptions, TransportKind } from 'vscode-languageclient';
@@ -24,10 +25,12 @@ import { MssqlObjectExplorerNodeProvider } from './objectExplorerNodeProvider/ob
 import { UploadFilesCommand, MkDirCommand, SaveFileCommand, PreviewFileCommand, CopyPathCommand, DeleteFilesCommand } from './objectExplorerNodeProvider/hdfsCommands';
 import { IPrompter } from './prompts/question';
 import CodeAdapter from './prompts/adapter';
+import SparkFeatureController from './sparkFeature/SparkFeatureController';
 
 const baseConfig = require('./config.json');
 const outputChannel = vscode.window.createOutputChannel(Constants.serviceName);
 const statusView = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+const controllers = [];
 
 export async function activate(context: vscode.ExtensionContext) {
 	// lets make sure we support this platform first
@@ -95,8 +98,15 @@ export async function activate(context: vscode.ExtensionContext) {
 		languageClient.start();
 		credentialsStore.start();
 		resourceProvider.start();
+
+		let appContext = new AppContext(context, new ApiWrapper());
 		let nodeProvider = new MssqlObjectExplorerNodeProvider(appContext);
 		sqlops.dataprotocol.registerObjectExplorerNodeProvider(nodeProvider);
+
+		let sparkFeatureController = new SparkFeatureController(appContext);
+		controllers.push(sparkFeatureController);
+		context.subscriptions.push(sparkFeatureController);
+		sparkFeatureController.activate();
 	}, e => {
 		Telemetry.sendTelemetryEvent('ServiceInitializingFailed');
 		vscode.window.showErrorMessage('Failed to start Sql tools service');
@@ -154,6 +164,9 @@ function generateHandleServerProviderEvent() {
 
 // this method is called when your extension is deactivated
 export function deactivate(): void {
+	for (let controller of controllers) {
+        controller.deactivate();
+    }
 }
 
 class CustomOutputChannel implements vscode.OutputChannel {
