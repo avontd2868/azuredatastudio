@@ -18,8 +18,8 @@ import * as constants from '../../constants';
 import { HdfsFileSourceNode } from '../../objectExplorerNodeProvider/hdfsProvider';
 import { getNode } from '../../objectExplorerNodeProvider/hdfsCommands';
 import * as LocalizedConstants from '../../localizedConstants';
-import { SqlClusterConnection } from '../../objectExplorerNodeProvider/connection';
 import { SqlClusterLookUp } from '../../bigDataClusterLookUp';
+import { SqlObjectExplorerNodeProvider } from '../../objectExplorerNodeProvider/objectExplorerNodeProvider';
 
 export class OpenSparkJobSubmissionDialogCommand extends Command {
     constructor(appContext: AppContext, private outputChannel: vscode.OutputChannel) {
@@ -30,27 +30,22 @@ export class OpenSparkJobSubmissionDialogCommand extends Command {
         return this.execute(context, args);
     }
 
-    async execute(context: ICommandUnknownContext | ICommandObjectExplorerContext, ...args: any[]): Promise<void> {
+    async execute(sqlContext: ICommandUnknownContext | ICommandObjectExplorerContext, ...args: any[]): Promise<void> {
         try {
-            let connection: sqlops.connection.Connection;
-            if (context && context.type === constants.ObjectExplorerService && context.explorerContext && context.explorerContext.connectionProfile) {
-                let connProfile = context.explorerContext.connectionProfile;
-                connection = await SqlClusterLookUp.lookUpSqlClusterInfo(connProfile);
+            let clusterConnInfo: sqlops.connection.Connection;
+			if (sqlContext && sqlContext.type === constants.ObjectExplorerService && sqlContext.explorerContext && sqlContext.explorerContext.connectionProfile) {
+				let sqlConnProfile = sqlContext.explorerContext.connectionProfile;
 
-                // Check whether the connection is active.
-                let credentials = await sqlops.connection.getCredentials(connection.connectionId);
-                if (!credentials) {
-                    let summary = await (new SqlClusterConnection(connection)).tryConnect();
-                    if (!summary || !summary.connectionId) {
-                        throw new Error(localize('sparkJobSubmission_ConnectionIsNotActive',
-                            'Submit Spark Job requires a connection to be active. Please click the cluster node in the left tree to activate. '));
-                    }
-                }
+				let sqlOeNodeProvider = this.appContext.getService<SqlObjectExplorerNodeProvider>(constants.ObjectExplorerService);
+				let sqlClusterSession = sqlOeNodeProvider.findClusterSessionBySqlConnProfile(sqlConnProfile);
+				clusterConnInfo = sqlClusterSession.sqlClusterConnection.sqlClusterConnInfo;
+s
+				clusterConnInfo = await SqlClusterLookUp.lookUpSqlClusterInfo(sqlConnProfile);
             } else {
                 let selectedConn = await this.selectConnection();
-                connection = await SqlClusterLookUp.lookUpSqlClusterInfo(selectedConn);
+                clusterConnInfo = await SqlClusterLookUp.lookUpSqlClusterInfo(selectedConn);
             }
-            let dialog = new SparkJobSubmissionDialog(connection, this.appContext, this.outputChannel);
+            let dialog = new SparkJobSubmissionDialog(clusterConnInfo, this.appContext, this.outputChannel);
             await dialog.openDialog();
         } catch (error) {
             this.appContext.apiWrapper.showErrorMessage(getErrorMessage(error));

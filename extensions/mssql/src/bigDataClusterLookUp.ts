@@ -10,44 +10,27 @@ import * as constants from './constants';
 import * as UUID from 'vscode-languageclient/lib/utils/uuid';
 
 export class SqlClusterLookUp {
-	public static async lookUpSqlClusterInfo(conn: sqlops.IConnectionProfile | sqlops.connection.Connection): Promise<ConnectionParam> {
-		if ('connectionId' in conn) {
-			return await this.lookUpSqlClusterInfoByConn(conn);
-		} else {
-			return await this.lookUpSqlClusterInfoByProfile(conn);
-		}
-	}
-
-	private static async lookUpSqlClusterInfoByProfile(connectionProfile: sqlops.IConnectionProfile): Promise<ConnectionParam> {
-		if (!connectionProfile) { return undefined; }
+	public static async lookUpSqlClusterInfo(obj: sqlops.IConnectionProfile | sqlops.connection.Connection): Promise<ConnectionParam> {
+		if (!obj) { return undefined; }
 
 		let clusterConnectionParam: ConnectionParam = undefined;
-		if (connectionProfile.providerName === constants.mssqlClusterProviderName) {
-			clusterConnectionParam = this.connProfileToConnectionParam(connectionProfile);
+		if (obj.providerName === constants.mssqlClusterProviderName) {
+			clusterConnectionParam = 'id' in obj ?
+				this.connProfileToConnectionParam(obj) :
+				this.connToConnectionParam(obj);
 		} else {
-			clusterConnectionParam = await this.createSqlClusterConnectionParam(connectionProfile);
-		}
-
-		return clusterConnectionParam;
-	}
-
-	private static async lookUpSqlClusterInfoByConn(connection: sqlops.connection.Connection): Promise<ConnectionParam> {
-		if (!connection) { return undefined; }
-
-		let clusterConnectionParam: ConnectionParam = undefined;
-		let connectionParam = this.connectionToConnectionParam(connection);
-		if (connection.providerName === constants.mssqlClusterProviderName) {
-			clusterConnectionParam = connectionParam;
-		} else {
-			clusterConnectionParam = await this.createSqlClusterConnectionParam(connectionParam);
+			clusterConnectionParam = await this.createSqlClusterConnectionParam(obj);
 		}
 		return clusterConnectionParam;
 	}
 
-	private static async createSqlClusterConnectionParam<T>(sqlMasterConnectionProfile: sqlops.IConnectionProfile): Promise<ConnectionParam> {
-		if (!sqlMasterConnectionProfile || !sqlMasterConnectionProfile.id || !sqlMasterConnectionProfile.userName) { return undefined; }
+	private static async createSqlClusterConnectionParam(obj: sqlops.IConnectionProfile | sqlops.connection.Connection): Promise<ConnectionParam> {
+		if (!obj) { return undefined; }
 
-		let serverInfo = await sqlops.connection.getServerInfo(sqlMasterConnectionProfile.id);
+		let connectionId: string = 'id' in obj ? obj.id : obj.connectionId;
+		if (!connectionId) { return undefined; }
+
+		let serverInfo = await sqlops.connection.getServerInfo(connectionId);
 		if (!serverInfo || !serverInfo.options) { return undefined; }
 
 		let endpoints: IEndpoint[] = serverInfo.options[constants.clusterEndpointsProperty];
@@ -56,58 +39,40 @@ export class SqlClusterLookUp {
 		let index = endpoints.findIndex(ep => ep.serviceName === constants.hadoopKnoxEndpointName);
 		if (index < 0) { return undefined; }
 
-		let credentials = await sqlops.connection.getCredentials(sqlMasterConnectionProfile.id);
+		let credentials = await sqlops.connection.getCredentials(connectionId);
 		if (!credentials) { return undefined; }
 
-		let connection = <sqlops.connection.Connection> {
-			options: {
-				'groupId': sqlMasterConnectionProfile.options.groupId,
-				'host': endpoints[index].ipAddress,
-				'knoxport': endpoints[index].port,
-				'user': 'root', //connectionProfile.options.userName cluster setup has to have the same user for master and big data cluster
-				'password': credentials.password,
-			},
+		let clusterConnInfo = <ConnectionParam>{
 			providerName: constants.mssqlClusterProviderName,
-			connectionId: UUID.generateUuid()
+			connectionId: UUID.generateUuid(),
+			options: {}
 		};
 
-		let connectionParam = this.connectionToConnectionParam(connection);
-		return connectionParam;
+		clusterConnInfo.options[constants.hostPropName] = endpoints[index].ipAddress;
+		clusterConnInfo.options[constants.knoxPortPropName] = endpoints[index].port;
+		clusterConnInfo.options[constants.userPropName] = 'root'; //should be the same user as sql master
+		clusterConnInfo.options[constants.passwordPropName] = credentials.password;
+		clusterConnInfo = this.connToConnectionParam(clusterConnInfo);
+
+		return clusterConnInfo;
 	}
 
 	private static connProfileToConnectionParam(connectionProfile: sqlops.IConnectionProfile): ConnectionParam {
-		let result = Object.assign(connectionProfile, { connectionId: connectionProfile.id || '' });
+		let result = Object.assign(connectionProfile, { connectionId: connectionProfile.id });
 		return <ConnectionParam>result;
 	}
 
-	private static connectionToConnectionParam(connection: sqlops.connection.Connection): ConnectionParam {
-		let providerName = connection.providerName;
+	private static connToConnectionParam(connection: sqlops.connection.Connection): ConnectionParam {
 		let connectionId = connection.connectionId;
-
-		let options = new Map<string, object>();
-		if (connection.options)
-		{
-			let fields = [ 'applicationName', 'authenticationType', 'connectionName', 'database',
-				'databaseDisplayName', 'groupId', 'server', 'user', 'password', 'host', 'knoxport' ];
-			fields.forEach(f => options.set(f, connection.options[f]));
-		}
-
-		let result = Object.assign(connection, {
-			connectionName: options['connectionName'] || '',
-			serverName: options['server'] ||
-				(options['host'] ? `${options['host']},${options['knoxport']}` : ''),
-			databaseName: options['database'] || options['databaseDisplayName'],
-			userName: options['user'] || '',
-			password: options['password'] || '',
-			authenticationType: options['authenticationType'] || '',
-			savePassword: false,
-			groupFullName: '',
-			groupId: options['groupId'] || '',
-			providerName: providerName,
-			saveProfile: false,
-			id: connectionId,
-		});
-
+		let options = connection.options;
+		let result = Object.assign(connection,
+			{
+				serverName: `${options[constants.hostPropName]},${options[constants.knoxPortPropName]}`,
+				userName: options[constants.userPropName],
+				password: options[constants.passwordPropName],
+				id: connectionId,
+			}
+		);
 		return <ConnectionParam>result;
 	}
 }

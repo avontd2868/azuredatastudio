@@ -24,7 +24,7 @@ import * as utils from '../utils';
 import { SqlClusterConnection } from './connection';
 import { AppContext } from '../appContext';
 import { TreeNode } from './treeNodes';
-import { MssqlObjectExplorerNodeProvider } from './objectExplorerNodeProvider';
+import { SqlObjectExplorerNodeProvider } from './objectExplorerNodeProvider';
 
 function getSaveableUri(apiWrapper: ApiWrapper, fileName: string, isPreview?: boolean): vscode.Uri {
 	let root = utils.getUserHome();
@@ -50,9 +50,9 @@ export async function getNode<T extends TreeNode>(context: ICommandViewContext |
 	if (context && context.type === constants.ViewType && context.node) {
 		node = context.node as T;
 	} else if (context && context.type === constants.ObjectExplorerService) {
-		let oeProvider = appContext.getService<MssqlObjectExplorerNodeProvider>(constants.ObjectExplorerService);
+		let oeProvider = appContext.getService<SqlObjectExplorerNodeProvider>(constants.ObjectExplorerService);
 		if (oeProvider) {
-			node = await oeProvider.findNodeForContext<T>(context.explorerContext);
+			node = await oeProvider.findNodeForSqlContext<T>(context.explorerContext);
 		}
 	} else {
 		throw new Error(LocalizedConstants.msgMissingNodeContext);
@@ -383,13 +383,13 @@ export class ConnectTask {
 			this.hdfsProvider.addHdfsConnection(<IHdfsOptions> {
 				protocol: 'https',
 				host: connection.host,
-				port: connection.knoxport,
+				port: connection.port,
 				user: connection.user,
 				path: 'gateway/default/webhdfs/v1',
 				requestParams: {
 					auth: {
 						user: connection.user,
-						pass: connection.password
+						pass: connection.pass
 					}
 				}
 			});
